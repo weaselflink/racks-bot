@@ -1,12 +1,12 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("jvm") version "1.4.31"
-    id("com.github.ben-manes.versions") version "0.38.0"
+    kotlin("jvm")
+    id("com.github.ben-manes.versions")
 }
 
-group = "de.stefanbissell.fscombat"
-version = "1.0-SNAPSHOT"
+group = "de.stefanbissell.numbsi"
+version = "0.1"
 
 repositories {
     mavenCentral()
@@ -14,10 +14,6 @@ repositories {
 
 dependencies {
     implementation("com.github.ocraft:ocraft-s2client-bot:0.4.7")
-}
-
-tasks.test {
-    useJUnitPlatform()
 }
 
 tasks.withType<KotlinCompile> {
