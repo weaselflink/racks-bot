@@ -15,6 +15,22 @@ import kotlin.random.Random
 
 class Numbsi : S2Agent() {
 
+    private val structureTypes = setOf(
+        Units.TERRAN_COMMAND_CENTER,
+        Units.TERRAN_COMMAND_CENTER_FLYING,
+        Units.TERRAN_PLANETARY_FORTRESS,
+        Units.TERRAN_ORBITAL_COMMAND,
+        Units.TERRAN_ORBITAL_COMMAND_FLYING,
+        Units.TERRAN_REFINERY,
+        Units.TERRAN_REFINERY_RICH,
+        Units.TERRAN_SUPPLY_DEPOT,
+        Units.TERRAN_SUPPLY_DEPOT_LOWERED,
+        Units.TERRAN_BARRACKS,
+        Units.TERRAN_BARRACKS_TECHLAB,
+        Units.TERRAN_BARRACKS_REACTOR,
+        Units.TERRAN_BARRACKS_FLYING
+    )
+
     override fun onStep() {
         tryBuildSupplyDepot()
         tryTrainScv()
@@ -50,9 +66,7 @@ class Numbsi : S2Agent() {
 
     private fun tryTrainScv() {
         if (supplyLeft > 0) {
-            units
-                .map { it.unit() }
-                .filter { it.type == Units.TERRAN_COMMAND_CENTER }
+            townHalls
                 .firstOrNull { it.orders.isEmpty() }
                 ?.trainScv()
         }
@@ -72,7 +86,7 @@ class Numbsi : S2Agent() {
     }
 
     private fun tryBuildStructure(abilityTypeForStructure: Ability, unitType: UnitType) {
-        if (observation().getUnits(Alliance.SELF, doesBuildWith(abilityTypeForStructure)).isNotEmpty()) {
+        if (observation().getUnits(doesBuildWith(abilityTypeForStructure)).isNotEmpty()) {
             return
         }
 
@@ -99,7 +113,7 @@ class Numbsi : S2Agent() {
 
     private fun getRandomUnit(unitType: UnitType): UnitInPool? {
         val units = observation().getUnits(Alliance.SELF, UnitInPool.isUnit(unitType))
-        return if (units.isEmpty()) null else units[Random.nextInt(units.size)]
+        return if (units.isEmpty()) null else units.random()
     }
 
     private fun getRandomScalar(): Float {
@@ -130,5 +144,24 @@ class Numbsi : S2Agent() {
         get() = observation().foodCap - observation().foodUsed
 
     private val units
-        get() = observation().getUnits(Alliance.SELF)
+        get() = observation().getUnits { it.unit().type !in structureTypes }
+
+    private val structures
+        get() = observation().getUnits { it.unit().type in structureTypes }
+
+    private val townHalls
+        get() = structures
+            .ofType(
+                Units.TERRAN_COMMAND_CENTER,
+                Units.TERRAN_PLANETARY_FORTRESS,
+                Units.TERRAN_ORBITAL_COMMAND
+            )
+
+    private fun List<UnitInPool>.ofType(vararg unitType: UnitType) =
+        map { it.unit() }
+            .filter { it.type in unitType }
+
+    private fun List<UnitInPool>.ready() =
+        map { it.unit() }
+            .filter { it.buildProgress == 1.0f }
 }
