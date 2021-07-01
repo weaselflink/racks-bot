@@ -23,6 +23,11 @@ class Numbsi : S2Agent() {
         Units.TERRAN_BARRACKS to Abilities.BUILD_BARRACKS
     )
 
+    private val trainingAbilities = mapOf(
+        Units.TERRAN_SCV to Abilities.TRAIN_SCV,
+        Units.TERRAN_MARINE to Abilities.TRAIN_MARINE
+    )
+
     private val structureTypes = setOf(
         Units.TERRAN_COMMAND_CENTER,
         Units.TERRAN_COMMAND_CENTER_FLYING,
@@ -57,19 +62,19 @@ class Numbsi : S2Agent() {
 
     override fun onStep() {
         if (supplyLeft < 4 && !isPending(Units.TERRAN_SUPPLY_DEPOT)) {
-            tryBuildSupplyDepot()
+            tryBuildStructure(Units.TERRAN_SUPPLY_DEPOT)
         }
         if (ownStructures.ofType(Units.TERRAN_BARRACKS).isEmpty() && !isPending(Units.TERRAN_BARRACKS)) {
-            tryBuildBarracks()
+            tryBuildStructure(Units.TERRAN_BARRACKS)
         }
         tryTrainScv()
+        tryTrainMarine()
     }
 
     override fun onUnitIdle(unitInPool: UnitInPool) {
         val unit = unitInPool.unit()
         when (unit.type) {
             Units.TERRAN_SCV -> {
-                sendChat("SCV idle")
                 val pos = unit.position.toPoint2d()
                 findNearestUnit(pos, Units.TERRAN_COMMAND_CENTER)
                     ?.let {
@@ -97,26 +102,23 @@ class Numbsi : S2Agent() {
             townHalls
                 .asUnits()
                 .idle()
-                .firstOrNull { it.orders.isEmpty() }
-                ?.trainScv()
+                .randomOrNull()
+                ?.train(Units.TERRAN_SCV)
         }
     }
 
-    private fun Unit.trainScv() {
-        actions()
-            .unitCommand(this, Abilities.TRAIN_SCV, false)
-    }
-
-    private fun tryBuildSupplyDepot() {
-        if (canAfford(Units.TERRAN_SUPPLY_DEPOT)) {
-            tryBuildStructure(Units.TERRAN_SUPPLY_DEPOT)
+    private fun tryTrainMarine() {
+        if (supplyLeft >= 1 && canAfford(Units.TERRAN_MARINE)) {
+            ownStructures
+                .ofType(Units.TERRAN_BARRACKS)
+                .randomOrNull()
+                ?.train(Units.TERRAN_MARINE)
         }
     }
 
-    private fun tryBuildBarracks() {
-        if (canAfford(Units.TERRAN_BARRACKS)) {
-            tryBuildStructure(Units.TERRAN_BARRACKS)
-        }
+    private fun Unit.train(units: Units) {
+        val ability = trainingAbilities[units] ?: return
+        actions().unitCommand(this, ability, false)
     }
 
     private fun tryBuildStructure(building: Units) {
