@@ -4,7 +4,6 @@ import com.github.ocraft.s2client.bot.S2Agent
 import com.github.ocraft.s2client.bot.gateway.UnitInPool
 import com.github.ocraft.s2client.protocol.action.ActionChat
 import com.github.ocraft.s2client.protocol.data.Abilities
-import com.github.ocraft.s2client.protocol.data.Ability
 import com.github.ocraft.s2client.protocol.data.UnitType
 import com.github.ocraft.s2client.protocol.data.Units
 import com.github.ocraft.s2client.protocol.spatial.Point2d
@@ -12,8 +11,14 @@ import com.github.ocraft.s2client.protocol.unit.Alliance
 import com.github.ocraft.s2client.protocol.unit.Unit
 import kotlin.random.Random
 
-
 class Numbsi : S2Agent() {
+
+    private val buildingAbilities = mapOf(
+        Units.TERRAN_COMMAND_CENTER to Abilities.BUILD_COMMAND_CENTER,
+        Units.TERRAN_REFINERY to Abilities.BUILD_REFINERY,
+        Units.TERRAN_SUPPLY_DEPOT to Abilities.BUILD_SUPPLY_DEPOT,
+        Units.TERRAN_BARRACKS to Abilities.BUILD_BARRACKS
+    )
 
     private val structureTypes = setOf(
         Units.TERRAN_COMMAND_CENTER,
@@ -31,12 +36,31 @@ class Numbsi : S2Agent() {
         Units.TERRAN_BARRACKS_FLYING
     )
 
+    private val unitTypes = setOf(
+        Units.TERRAN_SCV,
+        Units.TERRAN_MARINE,
+        Units.TERRAN_MARAUDER
+    )
+
+    private val townHallTypes = setOf(
+        Units.TERRAN_COMMAND_CENTER,
+        Units.TERRAN_PLANETARY_FORTRESS,
+        Units.TERRAN_ORBITAL_COMMAND
+    )
+
     override fun onGameStart() {
-        actions().sendChat("GLHF", ActionChat.Channel.BROADCAST)
+        sendChat("GLHF")
     }
 
     override fun onStep() {
-        tryBuildSupplyDepot()
+        if (supplyLeft < 4 && !isPending(Units.TERRAN_SUPPLY_DEPOT)) {
+            tryBuildSupplyDepot()
+            return
+        }
+        if (ownStructures.ofType(Units.TERRAN_BARRACKS).isEmpty() && !isPending(Units.TERRAN_BARRACKS)) {
+            tryBuildBarracks()
+            return
+        }
         tryTrainScv()
     }
 
@@ -44,8 +68,7 @@ class Numbsi : S2Agent() {
         val unit = unitInPool.unit()
         when (unit.type) {
             Units.TERRAN_SCV -> {
-                actions()
-                    .sendChat("SCV idle", ActionChat.Channel.BROADCAST)
+                sendChat("SCV idle")
                 val pos = unit.position.toPoint2d()
                 findNearestUnit(pos, Units.TERRAN_COMMAND_CENTER)
                     ?.let {
@@ -69,8 +92,10 @@ class Numbsi : S2Agent() {
     }
 
     private fun tryTrainScv() {
-        if (supplyLeft > 0) {
+        if (supplyLeft >= 1 && canAfford(Units.TERRAN_SCV)) {
             townHalls
+                .asUnits()
+                .idle()
                 .firstOrNull { it.orders.isEmpty() }
                 ?.trainScv()
         }
@@ -78,46 +103,51 @@ class Numbsi : S2Agent() {
 
     private fun Unit.trainScv() {
         actions()
-            .sendChat("train SCV", ActionChat.Channel.BROADCAST)
-        actions()
             .unitCommand(this, Abilities.TRAIN_SCV, false)
     }
 
     private fun tryBuildSupplyDepot() {
-        if (supplyLeft < 2 && observation().minerals >= 100) {
-            tryBuildStructure(Abilities.BUILD_SUPPLY_DEPOT, Units.TERRAN_SCV)
+        if (canAfford(Units.TERRAN_SUPPLY_DEPOT)) {
+            tryBuildStructure(Units.TERRAN_SUPPLY_DEPOT)
         }
     }
 
-    private fun tryBuildStructure(abilityTypeForStructure: Ability, unitType: UnitType) {
-        if (observation().getUnits(doesBuildWith(abilityTypeForStructure)).isNotEmpty()) {
+    private fun tryBuildBarracks() {
+        if (canAfford(Units.TERRAN_BARRACKS)) {
+            tryBuildStructure(Units.TERRAN_BARRACKS)
+        }
+    }
+
+    private fun tryBuildStructure(building: Units) {
+        if (!canAfford(building)) {
             return
         }
-
-        val unitInPool = getRandomUnit(unitType)
-        if (unitInPool != null) {
-            val unit: Unit = unitInPool.unit()
-            val spot = unit.position.toPoint2d().add(Point2d.of(getRandomScalar(), getRandomScalar()).mul(15.0f))
-            actions()
-                .unitCommand(
-                    unit,
-                    abilityTypeForStructure,
-                    spot,
-                    false
-                )
-        }
+        val ability = buildingAbilities[building] ?: return
+        val builder = workers.randomOrNull() ?: return
+        val spot = builder.position
+            .toPoint2d()
+            .add(Point2d.of(getRandomScalar(), getRandomScalar()).mul(15.0f))
+        actions()
+            .unitCommand(
+                builder,
+                ability,
+                spot,
+                false
+            )
     }
 
-    private fun doesBuildWith(abilityTypeForStructure: Ability): (UnitInPool) -> Boolean =
-        {
-            it.unit()
-                .orders
-                .any { unitOrder -> abilityTypeForStructure == unitOrder.ability }
+    private fun isPending(building: Units): Boolean {
+        val partial = ownStructures.ofType(building)
+            .any { it.buildProgress < 1.0 }
+        if (partial) {
+            return true
         }
-
-    private fun getRandomUnit(unitType: UnitType): UnitInPool? {
-        val units = observation().getUnits(Alliance.SELF, UnitInPool.isUnit(unitType))
-        return if (units.isEmpty()) null else units.random()
+        val ability = buildingAbilities[building] ?: return false
+        return workers
+            .any { worker ->
+                worker.orders
+                    .any { it.ability == ability }
+            }
     }
 
     private fun getRandomScalar(): Float {
@@ -144,28 +174,54 @@ class Numbsi : S2Agent() {
         )
     }
 
+    private val ownUnits
+        get() = observation()
+            .getUnits { it.unit().alliance == Alliance.SELF }
+            .filter { it.unit().type in unitTypes }
+
+    private val ownStructures
+        get() = observation()
+            .getUnits { it.unit().alliance == Alliance.SELF }
+            .filter { it.unit().type in structureTypes }
+
     private val supplyLeft
         get() = observation().foodCap - observation().foodUsed
 
-    private val units
-        get() = observation().getUnits { it.unit().type !in structureTypes }
+    private val workers
+        get() = ownUnits.ofType(Units.TERRAN_SCV)
 
-    private val structures
-        get() = observation().getUnits { it.unit().type in structureTypes }
+    private val townHalls: List<UnitInPool>
+        get() = ownStructures.filter { it.unit().type in townHallTypes }
 
-    private val townHalls
-        get() = structures
-            .ofType(
-                Units.TERRAN_COMMAND_CENTER,
-                Units.TERRAN_PLANETARY_FORTRESS,
-                Units.TERRAN_ORBITAL_COMMAND
-            )
-
-    private fun List<UnitInPool>.ofType(vararg unitType: UnitType) =
-        map { it.unit() }
+    private fun Iterable<UnitInPool>.ofType(vararg unitType: UnitType) =
+        asUnits()
             .filter { it.type in unitType }
 
-    private fun List<UnitInPool>.ready() =
-        map { it.unit() }
-            .filter { it.buildProgress == 1.0f }
+    private fun Iterable<UnitInPool>.asUnits() = map { it.unit() }
+
+    private fun Iterable<Unit>.ready() = filter { it.buildProgress >= 1.0 }
+
+    private fun Iterable<Unit>.idle() = ready().filter { it.orders.isEmpty() }
+
+    private fun sendChat(message: String) =
+        actions().sendChat(message, ActionChat.Channel.BROADCAST)
+
+    private fun canAfford(unitType: UnitType) = canAfford(cost(unitType))
+
+    private fun canAfford(cost: Cost?): Boolean {
+        return cost != null &&
+            cost.minerals <= observation().minerals &&
+            cost.vespene <= observation().vespene
+    }
+
+    private fun cost(unitType: UnitType) =
+        observation().getUnitTypeData(false)[unitType]
+            ?.let {
+                Cost(it.mineralCost.orElse(0), it.vespeneCost.orElse(0))
+            }
 }
+
+data class Cost(
+    val minerals: Int,
+    val vespene: Int
+)
