@@ -31,6 +31,10 @@ class Numbsi : S2Agent() {
         Units.TERRAN_BARRACKS_FLYING
     )
 
+    override fun onGameStart() {
+        actions().sendChat("GLHF", ActionChat.Channel.BROADCAST)
+    }
+
     override fun onStep() {
         tryBuildSupplyDepot()
         tryTrainScv()
