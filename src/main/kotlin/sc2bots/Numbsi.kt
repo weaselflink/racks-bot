@@ -6,12 +6,15 @@ import com.github.ocraft.s2client.protocol.action.ActionChat
 import com.github.ocraft.s2client.protocol.data.Abilities
 import com.github.ocraft.s2client.protocol.data.UnitType
 import com.github.ocraft.s2client.protocol.data.Units
+import com.github.ocraft.s2client.protocol.spatial.Point
 import com.github.ocraft.s2client.protocol.spatial.Point2d
 import com.github.ocraft.s2client.protocol.unit.Alliance
 import com.github.ocraft.s2client.protocol.unit.Unit
 import kotlin.random.Random
 
 class Numbsi : S2Agent() {
+
+    private val gameMap by lazy { GameMap(observation().gameInfo.startRaw.get()) }
 
     private val buildingAbilities = mapOf(
         Units.TERRAN_COMMAND_CENTER to Abilities.BUILD_COMMAND_CENTER,
@@ -55,11 +58,9 @@ class Numbsi : S2Agent() {
     override fun onStep() {
         if (supplyLeft < 4 && !isPending(Units.TERRAN_SUPPLY_DEPOT)) {
             tryBuildSupplyDepot()
-            return
         }
         if (ownStructures.ofType(Units.TERRAN_BARRACKS).isEmpty() && !isPending(Units.TERRAN_BARRACKS)) {
             tryBuildBarracks()
-            return
         }
         tryTrainScv()
     }
@@ -124,14 +125,19 @@ class Numbsi : S2Agent() {
         }
         val ability = buildingAbilities[building] ?: return
         val builder = workers.randomOrNull() ?: return
-        val spot = builder.position
-            .toPoint2d()
-            .add(Point2d.of(getRandomScalar(), getRandomScalar()).mul(15.0f))
+        val cc = townHalls
+            .first()
+            .unit()
+            .position
+        val spot = cc
+            .towards(mapCenter, 8f)
+            .add(Point.of(getRandomScalar(), getRandomScalar()).mul(5.0f))
+        val clamped = gameMap.clampToMap(spot)
         actions()
             .unitCommand(
                 builder,
                 ability,
-                spot,
+                clamped.toPoint2d(),
                 false
             )
     }
@@ -172,6 +178,12 @@ class Numbsi : S2Agent() {
             Units.NEUTRAL_MINERAL_FIELD,
             Alliance.NEUTRAL
         )
+    }
+
+    private val mapCenter by lazy {
+        observation().gameInfo
+            .findCenterOfMap()
+            .let { Point.of(it.x.toFloat(), it.y.toFloat()) }
     }
 
     private val ownUnits
