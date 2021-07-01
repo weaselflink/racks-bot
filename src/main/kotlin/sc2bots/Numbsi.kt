@@ -4,8 +4,10 @@ import com.github.ocraft.s2client.bot.S2Agent
 import com.github.ocraft.s2client.bot.gateway.UnitInPool
 import com.github.ocraft.s2client.protocol.action.ActionChat
 import com.github.ocraft.s2client.protocol.data.Abilities
+import com.github.ocraft.s2client.protocol.data.Ability
 import com.github.ocraft.s2client.protocol.data.UnitType
 import com.github.ocraft.s2client.protocol.data.Units
+import com.github.ocraft.s2client.protocol.debug.Color
 import com.github.ocraft.s2client.protocol.spatial.Point
 import com.github.ocraft.s2client.protocol.spatial.Point2d
 import com.github.ocraft.s2client.protocol.unit.Alliance
@@ -15,18 +17,6 @@ import kotlin.random.Random
 class Numbsi : S2Agent() {
 
     private val gameMap by lazy { GameMap(observation().gameInfo.startRaw.get()) }
-
-    private val buildingAbilities = mapOf(
-        Units.TERRAN_COMMAND_CENTER to Abilities.BUILD_COMMAND_CENTER,
-        Units.TERRAN_REFINERY to Abilities.BUILD_REFINERY,
-        Units.TERRAN_SUPPLY_DEPOT to Abilities.BUILD_SUPPLY_DEPOT,
-        Units.TERRAN_BARRACKS to Abilities.BUILD_BARRACKS
-    )
-
-    private val trainingAbilities = mapOf(
-        Units.TERRAN_SCV to Abilities.TRAIN_SCV,
-        Units.TERRAN_MARINE to Abilities.TRAIN_MARINE
-    )
 
     private val structureTypes = setOf(
         Units.TERRAN_COMMAND_CENTER,
@@ -44,23 +34,48 @@ class Numbsi : S2Agent() {
         Units.TERRAN_BARRACKS_FLYING
     )
 
-    private val unitTypes = setOf(
+    private val unitTypes = listOf(
         Units.TERRAN_SCV,
         Units.TERRAN_MARINE,
         Units.TERRAN_MARAUDER
     )
 
-    private val townHallTypes = setOf(
+    private val townHallTypes = listOf(
         Units.TERRAN_COMMAND_CENTER,
         Units.TERRAN_PLANETARY_FORTRESS,
         Units.TERRAN_ORBITAL_COMMAND
     )
+
+    private val buildingAbilities = mapOf(
+        Units.TERRAN_COMMAND_CENTER to Abilities.BUILD_COMMAND_CENTER,
+        Units.TERRAN_REFINERY to Abilities.BUILD_REFINERY,
+        Units.TERRAN_SUPPLY_DEPOT to Abilities.BUILD_SUPPLY_DEPOT,
+        Units.TERRAN_BARRACKS to Abilities.BUILD_BARRACKS
+    )
+
+    private val trainings = listOf(
+        TrainingData(
+            unitType = Units.TERRAN_SCV,
+            ability = Abilities.TRAIN_SCV,
+            buildingTypes = townHallTypes
+        ),
+        TrainingData(
+            unitType = Units.TERRAN_MARINE,
+            ability = Abilities.TRAIN_MARINE,
+            buildingTypes = listOf(
+                Units.TERRAN_BARRACKS,
+                Units.TERRAN_BARRACKS_REACTOR,
+                Units.TERRAN_BARRACKS_TECHLAB,
+            )
+        )
+    ).associateBy { it.unitType }
 
     override fun onGameStart() {
         sendChat("GLHF")
     }
 
     override fun onStep() {
+        debug().debugSphereOut(mapCenter, 5f, Color.WHITE)
         if (supplyLeft < 4 && !isPending(Units.TERRAN_SUPPLY_DEPOT)) {
             tryBuildStructure(Units.TERRAN_SUPPLY_DEPOT)
         }
@@ -97,28 +112,25 @@ class Numbsi : S2Agent() {
         }
     }
 
-    private fun tryTrainScv() {
-        if (supplyLeft >= 1 && canAfford(Units.TERRAN_SCV)) {
-            townHalls
-                .asUnits()
-                .idle()
-                .randomOrNull()
-                ?.train(Units.TERRAN_SCV)
+    private fun tryTrainScv() = tryTrain(Units.TERRAN_SCV)
+
+    private fun tryTrainMarine() = tryTrain(Units.TERRAN_MARINE)
+
+    private fun tryTrain(unitType: Units) {
+        if (canTrain(unitType)) {
+            train(unitType)
         }
     }
 
-    private fun tryTrainMarine() {
-        if (supplyLeft >= 1 && canAfford(Units.TERRAN_MARINE)) {
-            ownStructures
-                .ofType(Units.TERRAN_BARRACKS)
-                .randomOrNull()
-                ?.train(Units.TERRAN_MARINE)
-        }
-    }
-
-    private fun Unit.train(units: Units) {
-        val ability = trainingAbilities[units] ?: return
-        actions().unitCommand(this, ability, false)
+    private fun train(unitType: Units) {
+        val training = trainings[unitType] ?: return
+        val building = ownStructures
+            .ready()
+            .filter { it.type in training.buildingTypes }
+            .filter { it.canCast(training.ability) }
+            .randomOrNull()
+            ?: return
+        actions().unitCommand(building, training.ability, false)
     }
 
     private fun tryBuildStructure(building: Units) {
@@ -129,7 +141,6 @@ class Numbsi : S2Agent() {
         val builder = workers.randomOrNull() ?: return
         val cc = townHalls
             .first()
-            .unit()
             .position
         val spot = cc
             .towards(mapCenter, 8f)
@@ -191,12 +202,14 @@ class Numbsi : S2Agent() {
     private val ownUnits
         get() = observation()
             .getUnits { it.unit().alliance == Alliance.SELF }
-            .filter { it.unit().type in unitTypes }
+            .asUnits()
+            .filter { it.type in unitTypes }
 
     private val ownStructures
         get() = observation()
             .getUnits { it.unit().alliance == Alliance.SELF }
-            .filter { it.unit().type in structureTypes }
+            .asUnits()
+            .filter { it.type in structureTypes }
 
     private val supplyLeft
         get() = observation().foodCap - observation().foodUsed
@@ -204,26 +217,46 @@ class Numbsi : S2Agent() {
     private val workers
         get() = ownUnits.ofType(Units.TERRAN_SCV)
 
-    private val townHalls: List<UnitInPool>
-        get() = ownStructures.filter { it.unit().type in townHallTypes }
+    private val townHalls: List<Unit>
+        get() = ownStructures.filter { it.type in townHallTypes }
 
-    private fun Iterable<UnitInPool>.ofType(vararg unitType: UnitType) =
-        asUnits()
-            .filter { it.type in unitType }
+    private fun Iterable<Unit>.ofType(vararg unitType: UnitType) =
+        filter { it.type in unitType }
 
     private fun Iterable<UnitInPool>.asUnits() = map { it.unit() }
 
     private fun Iterable<Unit>.ready() = filter { it.buildProgress >= 1.0 }
 
-    private fun Iterable<Unit>.idle() = ready().filter { it.orders.isEmpty() }
-
     private fun sendChat(message: String) =
         actions().sendChat(message, ActionChat.Channel.BROADCAST)
+
+    private fun canTrain(unitType: UnitType): Boolean {
+        if (!canAfford(unitType)) {
+            return false
+        }
+        return trainings[unitType]
+            ?.let { training ->
+                return ownStructures
+                    .ready()
+                    .filter { it.type in training.buildingTypes }
+                    .filter { it.canCast(training.ability) }
+                    .any()
+            }
+            ?: false
+    }
+
+    private fun Unit.canCast(ability: Ability) =
+        query()
+            .getAbilitiesForUnit(this, true)
+            .abilities
+            .map { it.ability }
+            .contains(ability)
 
     private fun canAfford(unitType: UnitType) = canAfford(cost(unitType))
 
     private fun canAfford(cost: Cost?): Boolean {
         return cost != null &&
+            cost.supply <= supplyLeft &&
             cost.minerals <= observation().minerals &&
             cost.vespene <= observation().vespene
     }
@@ -231,11 +264,22 @@ class Numbsi : S2Agent() {
     private fun cost(unitType: UnitType) =
         observation().getUnitTypeData(false)[unitType]
             ?.let {
-                Cost(it.mineralCost.orElse(0), it.vespeneCost.orElse(0))
+                Cost(
+                    supply = it.foodRequired.orElse(0f),
+                    minerals = it.mineralCost.orElse(0),
+                    vespene = it.vespeneCost.orElse(0)
+                )
             }
 }
 
 data class Cost(
+    val supply: Float,
     val minerals: Int,
     val vespene: Int
+)
+
+data class TrainingData(
+    val unitType: Units,
+    val ability: Ability,
+    val buildingTypes: List<Units>
 )
