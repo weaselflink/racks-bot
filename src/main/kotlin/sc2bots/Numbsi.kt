@@ -18,7 +18,7 @@ class Numbsi : TerranBot() {
     }
 
     override fun onStep() {
-        debug().debugSphereOut(gameMap.center, 5f, Color.WHITE)
+        debug().debugSphereOut(townHalls.first().position, 9f, Color.WHITE)
         if (supplyLeft < 4 && !isPending(Units.TERRAN_SUPPLY_DEPOT)) {
             tryBuildStructure(Units.TERRAN_SUPPLY_DEPOT)
         }
@@ -27,6 +27,8 @@ class Numbsi : TerranBot() {
         }
         tryTrainScv()
         tryTrainMarine()
+
+        debug().sendDebug()
     }
 
     override fun onUnitIdle(unitInPool: UnitInPool) {
