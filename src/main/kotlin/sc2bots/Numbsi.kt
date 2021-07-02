@@ -14,32 +14,29 @@ import kotlin.random.Random
 class Numbsi : TerranBot() {
 
     override fun onStep() {
-        debug().debugSphereOut(townHalls.first().position, 9f, Color.WHITE)
         if (supplyLeft < 4 && !isPending(Units.TERRAN_SUPPLY_DEPOT)) {
             tryBuildStructure(Units.TERRAN_SUPPLY_DEPOT)
         }
         if (ownStructures.ofType(Units.TERRAN_BARRACKS).isEmpty() && !isPending(Units.TERRAN_BARRACKS)) {
             tryBuildStructure(Units.TERRAN_BARRACKS)
         }
+        upgradeCcs()
         tryTrainScv()
         tryTrainMarine()
 
+        controlIdleScvs()
+
+        gameMap.expansions
+            .forEach {
+                debug().debugSphereOut(it, 9f, Color.WHITE)
+            }
         debug().sendDebug()
     }
 
     override fun onUnitIdle(unitInPool: UnitInPool) {
         val unit = unitInPool.unit()
         when (unit.type) {
-            Units.TERRAN_SCV -> {
-                val pos = unit.position.toPoint2d()
-                findNearestUnit(pos, Units.TERRAN_COMMAND_CENTER)
-                    ?.let {
-                        findNearestMineralPatch(it.position.toPoint2d())
-                    }
-                    ?.also {
-                        actions().unitCommand(unit, Abilities.HARVEST_GATHER_SCV, it, true)
-                    }
-            }
+            Units.TERRAN_SCV -> controlIdleScv(unit)
         }
     }
 
@@ -51,6 +48,38 @@ class Numbsi : TerranBot() {
                     .unitCommand(unit, Abilities.MORPH_SUPPLY_DEPOT_LOWER, false)
             }
         }
+    }
+
+    private fun upgradeCcs() {
+        townHalls
+            .ofType(Units.TERRAN_COMMAND_CENTER)
+            .idle()
+            .filter {
+                it.canCast(Abilities.MORPH_ORBITAL_COMMAND, false)
+            }
+            .forEach {
+                actions()
+                    .unitCommand(it, Abilities.MORPH_ORBITAL_COMMAND, false)
+            }
+    }
+
+    private fun controlIdleScvs() {
+        workers
+            .idle()
+            .forEach {
+                controlIdleScv(it)
+            }
+    }
+
+    private fun controlIdleScv(unit: Unit) {
+        val pos = unit.position.toPoint2d()
+        findNearestUnit(pos, townHallTypes)
+            ?.let {
+                findNearestMineralPatch(it.position.toPoint2d())
+            }
+            ?.also {
+                actions().unitCommand(unit, Abilities.HARVEST_GATHER_SCV, it, false)
+            }
     }
 
     private fun tryBuildStructure(building: Units) {
@@ -68,23 +97,28 @@ class Numbsi : TerranBot() {
         return Random.nextFloat() * 2 - 1
     }
 
+    private fun findNearestMineralPatch(from: Point2d): Unit? {
+        return findNearestUnit(
+            from,
+            mineralFieldTypes,
+            Alliance.NEUTRAL,
+            9f
+        )
+    }
+
     private fun findNearestUnit(
         from: Point2d,
-        unitType: UnitType,
-        alliance: Alliance = Alliance.SELF
+        unitTypes: List<UnitType>,
+        alliance: Alliance = Alliance.SELF,
+        maxDistance: Float? = null
     ): Unit? {
         return observation()
             .getUnits(alliance)
             .map { it.unit() }
-            .filter { it.type == unitType }
-            .minByOrNull { it.position.toPoint2d().distance(from) }
-    }
-
-    private fun findNearestMineralPatch(from: Point2d): Unit? {
-        return findNearestUnit(
-            from,
-            Units.NEUTRAL_MINERAL_FIELD,
-            Alliance.NEUTRAL
-        )
+            .filter { it.type in unitTypes }
+            .map { it to it.position.toPoint2d().distance(from) }
+            .filter { maxDistance == null || it.second <= maxDistance }
+            .minByOrNull { it.second }
+            ?.first
     }
 }

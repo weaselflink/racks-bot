@@ -15,7 +15,24 @@ open class TerranBot : S2Agent() {
     val chat by lazy { Chat(this) }
     val gameMap by lazy { GameMap(this) }
 
-    private val structureTypes = setOf(
+    val mineralFieldTypes = listOf(
+        Units.NEUTRAL_MINERAL_FIELD, Units.NEUTRAL_MINERAL_FIELD750,
+        Units.NEUTRAL_RICH_MINERAL_FIELD, Units.NEUTRAL_RICH_MINERAL_FIELD750,
+        Units.NEUTRAL_PURIFIER_MINERAL_FIELD, Units.NEUTRAL_PURIFIER_MINERAL_FIELD750,
+        Units.NEUTRAL_PURIFIER_RICH_MINERAL_FIELD, Units.NEUTRAL_PURIFIER_RICH_MINERAL_FIELD750,
+        Units.NEUTRAL_LAB_MINERAL_FIELD, Units.NEUTRAL_LAB_MINERAL_FIELD750,
+        Units.NEUTRAL_BATTLE_STATION_MINERAL_FIELD, Units.NEUTRAL_BATTLE_STATION_MINERAL_FIELD750
+    )
+
+    val vespeneGeyserTypes = listOf(
+        Units.NEUTRAL_VESPENE_GEYSER, Units.NEUTRAL_PROTOSS_VESPENE_GEYSER,
+        Units.NEUTRAL_SPACE_PLATFORM_GEYSER, Units.NEUTRAL_PURIFIER_VESPENE_GEYSER,
+        Units.NEUTRAL_SHAKURAS_VESPENE_GEYSER, Units.NEUTRAL_RICH_VESPENE_GEYSER
+    )
+
+    val resourceTypes = mineralFieldTypes + vespeneGeyserTypes
+
+    private val structureTypes = listOf(
         Units.TERRAN_COMMAND_CENTER,
         Units.TERRAN_COMMAND_CENTER_FLYING,
         Units.TERRAN_PLANETARY_FORTRESS,
@@ -37,7 +54,7 @@ open class TerranBot : S2Agent() {
         Units.TERRAN_MARAUDER
     )
 
-    private val townHallTypes = listOf(
+    val townHallTypes = listOf(
         Units.TERRAN_COMMAND_CENTER,
         Units.TERRAN_PLANETARY_FORTRESS,
         Units.TERRAN_ORBITAL_COMMAND
@@ -90,6 +107,7 @@ open class TerranBot : S2Agent() {
 
     override fun onGameStart() {
         chat.sendChat("GLHF")
+        gameMap.initExpansions()
     }
 
     fun cost(unitType: UnitType) =
@@ -117,9 +135,12 @@ open class TerranBot : S2Agent() {
             ?: false
     }
 
-    fun Unit.canCast(ability: Ability) =
+    fun Unit.canCast(
+        ability: Ability,
+        ignoreResourceRequirements: Boolean = true
+    ) =
         query()
-            .getAbilitiesForUnit(this, true)
+            .getAbilitiesForUnit(this, ignoreResourceRequirements)
             .abilities
             .map { it.ability }
             .contains(ability)
@@ -128,15 +149,17 @@ open class TerranBot : S2Agent() {
 
     fun canAfford(cost: Cost?): Boolean {
         return cost != null &&
-                cost.supply <= supplyLeft &&
-                cost.minerals <= observation().minerals &&
-                cost.vespene <= observation().vespene
+            cost.supply <= supplyLeft &&
+            cost.minerals <= observation().minerals &&
+            cost.vespene <= observation().vespene
     }
 
     fun Iterable<Unit>.ofType(vararg unitType: UnitType) =
         filter { it.type in unitType }
 
     fun Iterable<UnitInPool>.asUnits() = map { it.unit() }
+
+    fun Iterable<Unit>.idle() = ready().filter { it.orders.isEmpty() }
 
     fun Iterable<Unit>.ready() = filter { it.buildProgress >= 1.0 }
 
@@ -153,7 +176,7 @@ open class TerranBot : S2Agent() {
     fun train(unitType: Units) {
         val training = trainings[unitType] ?: return
         val building = ownStructures
-            .ready()
+            .idle()
             .filter { it.type in training.buildingTypes }
             .filter { it.canCast(training.ability) }
             .randomOrNull()

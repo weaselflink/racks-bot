@@ -12,10 +12,16 @@ class GameMap(
     private val startRaw by lazy {
         sc2Agent.observation().gameInfo.startRaw.get()
     }
+    var expansions: List<Point> = emptyList()
+        private set
 
     private val width by lazy { startRaw.mapSize.x }
     private val height by lazy { startRaw.mapSize.x }
     val center: Point by lazy { Point.of(width / 2f, height / 2f) }
+
+    fun initExpansions() {
+        expansions = sc2Agent.query().calculateExpansionLocations(sc2Agent.observation())
+    }
 
     fun clampToMap(point: Point) =
         Point.of(
