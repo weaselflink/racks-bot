@@ -88,6 +88,10 @@ open class TerranBot : S2Agent() {
     val townHalls: List<Unit>
         get() = ownStructures.filter { it.type in townHallTypes }
 
+    override fun onGameStart() {
+        chat.sendChat("GLHF")
+    }
+
     fun cost(unitType: UnitType) =
         observation().getUnitTypeData(false)[unitType]
             ?.let {

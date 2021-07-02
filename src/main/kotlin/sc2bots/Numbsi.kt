@@ -13,10 +13,6 @@ import kotlin.random.Random
 
 class Numbsi : TerranBot() {
 
-    override fun onGameStart() {
-        chat.sendChat("GLHF")
-    }
-
     override fun onStep() {
         debug().debugSphereOut(townHalls.first().position, 9f, Color.WHITE)
         if (supplyLeft < 4 && !isPending(Units.TERRAN_SUPPLY_DEPOT)) {
