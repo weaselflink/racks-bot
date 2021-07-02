@@ -23,7 +23,7 @@ class GameMap(
         expansions = sc2Agent.query().calculateExpansionLocations(sc2Agent.observation())
     }
 
-    fun clampToMap(point: Point) =
+    fun clampToMap(point: Point): Point =
         Point.of(
             min(max(0f, point.x), width.toFloat()),
             min(max(0f, point.y), height.toFloat())
